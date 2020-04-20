@@ -1,7 +1,9 @@
 <?php
 
 use Drupal\bynder\Plugin\media\Source\Bynder;
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\media\MediaInterface;
+use GuzzleHttp\Exception\ConnectException;
 
 /**
  * @file
@@ -15,11 +17,86 @@ function bynder_local_media_presave(MediaInterface $media) {
   $source = $media->getSource();
 
   if ($source instanceof Bynder && $media->hasField('field_bynder_image') && !$media->get('field_bynder_image')->entity) {
-    $webimage = $source->getMetadata($media, 'thumbnail_urls')['webimage'];
 
-    if ($file = system_retrieve_file($webimage, NULL, TRUE)) {
+    $config = \Drupal::config('bynder_local.settings');
+    if ($config->get('derivative') == 'original') {
+      $image_url = $source->getMetadata($media, 'original');
+    }
+    else {
+      $image_url = $source->getMetadata($media, 'thumbnail_urls')[$config->get('derivative')] ?? NULL;
+    }
+
+    if (!$image_url) {
+      \Drupal::logger('bynder_local')->warning('Missing asset for media @label (@id)', ['@label' => $media->label(), '@id' => $media->id()]);
+      return;
+    }
+
+    $location = $media->getFieldDefinition('field_bynder_image')->getSetting('file_directory');
+    $location = \Drupal::token()->replace($location);
+
+    if ($file = system_retrieve_file($image_url, $location, TRUE)) {
       $media->set('field_bynder_image', $file);
     }
   }
 
+}
+
+/**
+ * Implements hook_form_FORM_ID_alter().
+ */
+function bynder_local_form_bynder_configuration_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
+
+  $field_map = \Drupal::service('entity_field.manager')->getFieldMap();
+
+  try {
+    $derivatives = array_merge(array_map(function ($item) {
+        return $item['prefix'];
+      }, \Drupal::service('bynder_api')->getDerivatives()),
+      ['mini', 'webimage', 'thul', 'original']
+    );
+    $derivatives = array_combine($derivatives, $derivatives);
+  }
+  catch (ConnectException $e) {
+    $derivatives = [];
+  }
+
+  $form['bynder_local'] = [
+    '#type' => 'details',
+    '#title' => 'Local assets',
+    '#open' => TRUE,
+  ];
+
+  if (empty($field_map['media']['field_bynder_image']['bundles'])) {
+    $form['bynder_local']['#description'] = t('The Field "field_bynder_image" has not been added to any media types, this functionality is not active.');
+  }
+  else {
+    $labels = [];
+    $bundles = \Drupal::service('entity_type.bundle.info')->getBundleInfo('media');
+    foreach ($field_map['media']['field_bynder_image']['bundles'] as $bundle) {
+      $labels[] = $bundles[$bundle]['label'];
+    }
+
+    $form['bynder_local']['#description'] = t('The following media types are storing a local asset: @labels.', ['@labels' => implode(', ', $labels)]);
+  }
+
+  $config = \Drupal::configFactory()->getEditable('bynder_local.settings');
+
+  $form['bynder_local']['local_derivative'] = [
+    '#type' => 'select',
+    '#title' => t('Derivative to store as local asset'),
+    '#options' => $derivatives,
+    '#default_value' => $config->get('derivative'),
+    '#description' => t('This should be a very large derivative, or the original. Note that the original only works on public assets.'),
+  ];
+
+  $form['#submit'][] = 'bynder_local_settings_submit';
+}
+
+/**
+ * Form submit callback.
+ */
+function bynder_local_settings_submit($form, FormStateInterface $form_state) {
+  $config = \Drupal::configFactory()->getEditable('bynder_local.settings');
+  $config->set('derivative', $form_state->getValue('local_derivative'));
+  $config->save();
 }

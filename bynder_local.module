@@ -32,7 +32,8 @@ function bynder_local_media_presave(MediaInterface $media) {
       return;
     }
 
-    $location = $media->getFieldDefinition('field_bynder_image')->getSetting('file_directory');
+    $field_definition = $media->getFieldDefinition('field_bynder_image');
+    $location = $field_definition->getFieldStorageDefinition()->getSetting('uri_scheme') . '://' . $field_definition->getSetting('file_directory');
     $location = \Drupal::token()->replace($location);
 
     \Drupal::service('file_system')->prepareDirectory($location, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);

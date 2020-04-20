@@ -1,0 +1,25 @@
+<?php
+
+use Drupal\bynder\Plugin\media\Source\Bynder;
+use Drupal\media\MediaInterface;
+
+/**
+ * @file
+ * Hooks for the Bynder Local module.
+ */
+
+/**
+ * Implements hook_ENTITY_TYPE_presave() for media.
+ */
+function bynder_local_media_presave(MediaInterface $media) {
+  $source = $media->getSource();
+
+  if ($source instanceof Bynder && $media->hasField('field_bynder_image') && !$media->get('field_bynder_image')->entity) {
+    $webimage = $source->getMetadata($media, 'thumbnail_urls')['webimage'];
+
+    if ($file = system_retrieve_file($webimage, NULL, TRUE)) {
+      $media->set('field_bynder_image', $file);
+    }
+  }
+
+}

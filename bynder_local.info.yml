@@ -1,0 +1,9 @@
+name: Local Bynder Assets
+description: 'Stores image assets in an image field'
+type: module
+package: Media
+core_version_requirement: ^8.7.7 || ^9
+configure: bynder.configuration_form
+
+dependencies:
+  - drupal:bynder

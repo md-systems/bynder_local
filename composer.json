@@ -1,0 +1,8 @@
+{
+  "name": "md-systems/bynder_local",
+  "description": "Stores image assets in an image field",
+  "type": "drupal-module",
+  "require": {
+    "drupal/bynder": "3.x-dev"
+  }
+}

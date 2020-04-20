@@ -16,8 +16,8 @@ INTRODUCTION
 INSTALLATION
 ------------
 
- * `composer config repositories.bynder_local '{"type": "vcs", "url": "https://github.com/md-systems/bynder_local.git"}`
- * `composer require md-systems/bynder_local:dev-1.0.x`
+ * `composer config repositories.bynder_local '{"type": "vcs", "url": "https://github.com/md-systems/bynder_local.git"}'`
+ * `composer require md-systems/bynder_local`
 
 CONFIGURATION
 -------------

@@ -1,6 +1,7 @@
 <?php
 
 use Drupal\bynder\Plugin\media\Source\Bynder;
+use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\media\MediaInterface;
 use GuzzleHttp\Exception\ConnectException;
@@ -34,6 +35,7 @@ function bynder_local_media_presave(MediaInterface $media) {
     $location = $media->getFieldDefinition('field_bynder_image')->getSetting('file_directory');
     $location = \Drupal::token()->replace($location);
 
+    \Drupal::service('file_system')->prepareDirectory($location, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);
     if ($file = system_retrieve_file($image_url, $location, TRUE)) {
       $media->set('field_bynder_image', $file);
     }

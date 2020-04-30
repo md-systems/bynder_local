@@ -41,7 +41,65 @@ function bynder_local_media_presave(MediaInterface $media) {
       $media->set('field_bynder_image', $file);
     }
   }
+}
 
+
+/**
+ * Implements hook_ENTITY_TYPE_presave() for media.
+ */
+/**
+ * Implements hook_bynder_media_update_alter().
+ */
+function bynder_local_bynder_media_update_alter(MediaInterface $media, array $item, &$has_changed) {
+  $source = $media->getSource();
+
+  if ($source instanceof Bynder && $media->hasField('field_bynder_image')) {
+
+    $config = \Drupal::config('bynder_local.settings');
+    if ($config->get('derivative') == 'original') {
+      $image_url = $item['original'] ?? NULL;
+    }
+    else {
+      $image_url = $item['thumbnails'][$config->get('derivative')] ?? NULL;
+    }
+
+    if (!$image_url) {
+      \Drupal::logger('bynder_local')->warning('Missing asset for media @label (@id)', ['@label' => $media->label(), '@id' => $media->id()]);
+      return;
+    }
+
+    // Check the asset date, if it changed after the local file or if there is
+    // no local file, fetch it again.
+    if ($media->get('field_bynder_image')->entity) {
+      try {
+        $modified = new \DateTime($item['dateModified']);
+        if ($modified->getTimestamp() < $media->get('field_bynder_image')->entity->getCreatedTime()) {
+          return;
+        }
+      }
+      catch (\Exception $e) {
+        watchdog_exception('bynder_local', $e);
+      }
+    }
+
+    $field_definition = $media->getFieldDefinition('field_bynder_image');
+    $location = $field_definition->getFieldStorageDefinition()->getSetting('uri_scheme') . '://' . $field_definition->getSetting('file_directory');
+    $location = \Drupal::token()->replace($location);
+
+    \Drupal::service('file_system')->prepareDirectory($location, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);
+    if ($file = system_retrieve_file($image_url, $location, TRUE)) {
+
+      // If there already is a local file, mark it as temporary.
+      if ($media->get('field_bynder_image')->entity) {
+        $old_file = $media->get('field_bynder_image')->entity;
+        $old_file->setTemporary();
+        $old_file->save();
+      }
+
+      $media->set('field_bynder_image', $file);
+      $has_changed = TRUE;
+    }
+  }
 }
 
 /**

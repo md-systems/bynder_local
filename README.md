@@ -26,7 +26,9 @@ The module provides a "field_bynder_image" field storage. This field needs to be
 added to all bynder media types that should store a local copy of the asset.
 
 Then, on `/admin/config/services/bynder` verify the field configuration and
-select an appropriate derivative to store as a local media.
+select an appropriate derivative to store as a local media. It is also possible
+to download the original image through the download API, which is especially
+useful when combined with SNS notifications for immediate updates.
 
 Afterwards, configure the media entity to show an appropriate image style of
 the "Bynder image" field instead of rendering the Bynder ID field.

@@ -1,6 +1,8 @@
 <?php
 
+use Drupal\bynder\Plugin\Field\FieldType\BynderMetadataItem;
 use Drupal\bynder\Plugin\media\Source\Bynder;
+use Drupal\Component\Serialization\Json;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\media\MediaInterface;
@@ -19,13 +21,9 @@ function bynder_local_media_presave(MediaInterface $media) {
 
   if ($source instanceof Bynder && $media->hasField('field_bynder_image') && !$media->get('field_bynder_image')->entity) {
 
-    $config = \Drupal::config('bynder_local.settings');
-    if ($config->get('derivative') == 'original') {
-      $image_url = $source->getMetadata($media, 'original');
-    }
-    else {
-      $image_url = $source->getMetadata($media, 'thumbnail_urls')[$config->get('derivative')] ?? NULL;
-    }
+    $source->ensureMetadata($media);
+    $item = Json::decode($media->get(BynderMetadataItem::METADATA_FIELD_NAME)->value);
+    $image_url = bynder_local_get_image_url($item);
 
     if (!$image_url) {
       \Drupal::logger('bynder_local')->warning('Missing asset for media @label (@id)', ['@label' => $media->label(), '@id' => $media->id()]);
@@ -55,14 +53,7 @@ function bynder_local_bynder_media_update_alter(MediaInterface $media, array $it
 
   if ($source instanceof Bynder && $media->hasField('field_bynder_image')) {
 
-    $config = \Drupal::config('bynder_local.settings');
-    if ($config->get('derivative') == 'original') {
-      $image_url = $item['original'] ?? NULL;
-    }
-    else {
-      $image_url = $item['thumbnails'][$config->get('derivative')] ?? NULL;
-    }
-
+    $image_url = bynder_local_get_image_url($item);
     if (!$image_url) {
       \Drupal::logger('bynder_local')->warning('Missing asset for media @label (@id)', ['@label' => $media->label(), '@id' => $media->id()]);
       return;
@@ -103,6 +94,36 @@ function bynder_local_bynder_media_update_alter(MediaInterface $media, array $it
 }
 
 /**
+ * Returns the image URL to download based on the configuration.
+ *
+ * @param array $item
+ *   The raw asset information.
+ *
+ * @return string|null
+ *   The image URL or NULL if it can't be fetched.
+ */
+function bynder_local_get_image_url(array $item) {
+  $config = \Drupal::config('bynder_local.settings');
+  if ($config->get('derivative') == 'original') {
+    return $item['original'] ?? NULL;
+  }
+  elseif ($config->get('derivative') == '_download') {
+    /** @var \Drupal\bynder\BynderApi $api */
+    $api = \Drupal::service('bynder_api');
+    try {
+      $response = $api->getAssetBankManager()->getMediaDownloadLocation($item['id'])->wait();
+      return $response['s3_file'];
+    }
+    catch (\Exception $e) {
+      watchdog_exception('bynder_local', $e);
+    }
+  }
+  else {
+    return $item['thumbnails'][$config->get('derivative')] ?? NULL;
+  }
+}
+
+/**
  * Implements hook_form_FORM_ID_alter().
  */
 function bynder_local_form_bynder_configuration_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
@@ -116,6 +137,7 @@ function bynder_local_form_bynder_configuration_form_alter(&$form, \Drupal\Core\
       ['mini', 'webimage', 'thul', 'original']
     );
     $derivatives = array_combine($derivatives, $derivatives);
+    $derivatives['_download'] = t('Download through API');
   }
   catch (ConnectException $e) {
     $derivatives = [];
@@ -147,7 +169,7 @@ function bynder_local_form_bynder_configuration_form_alter(&$form, \Drupal\Core\
     '#title' => t('Derivative to store as local asset'),
     '#options' => $derivatives,
     '#default_value' => $config->get('derivative'),
-    '#description' => t('This should be a very large derivative, or the original. Note that the original only works on public assets.'),
+    '#description' => t('This should be a very large derivative, or the original. Note that the original only works on public assets. API Download allows to fetch an updated asset immediately after the change but might require extra permissions.'),
   ];
 
   $form['#submit'][] = 'bynder_local_settings_submit';

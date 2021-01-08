@@ -3,6 +3,6 @@
   "description": "Stores image assets in an image field",
   "type": "drupal-module",
   "require": {
-    "drupal/bynder": "3.x-dev"
+    "drupal/bynder": "^4 || 3.x-dev"
   }
 }

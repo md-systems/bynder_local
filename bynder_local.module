@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * @file
+ * Stores Bynder image assets in an image field.
+ */
+
 use Drupal\bynder\Plugin\Field\FieldType\BynderMetadataItem;
 use Drupal\bynder\Plugin\media\Source\Bynder;
 use Drupal\Component\Serialization\Json;
@@ -19,75 +24,94 @@ use GuzzleHttp\Exception\ConnectException;
 function bynder_local_media_presave(MediaInterface $media) {
   $source = $media->getSource();
 
-  if ($source instanceof Bynder && $media->hasField('field_bynder_image') && !$media->get('field_bynder_image')->entity) {
+  $config = Drupal::config('bynder_local.settings');
+  $local_field = $config->get('local_image_field');
 
+  if ($source instanceof Bynder && $media->hasField($local_field) && !$media->get($local_field)->entity) {
     $source->ensureMetadata($media);
     $item = Json::decode($media->get(BynderMetadataItem::METADATA_FIELD_NAME)->value);
     $image_url = bynder_local_get_image_url($item);
 
     if (!$image_url) {
-      \Drupal::logger('bynder_local')->warning('Missing asset for media @label (@id)', ['@label' => $media->label(), '@id' => $media->id()]);
+      Drupal::logger('bynder_local')
+        ->warning('Missing asset for media @label (@id)', [
+          '@label' => $media->label(),
+          '@id' => $media->id(),
+        ]);
+
       return;
     }
 
-    $field_definition = $media->getFieldDefinition('field_bynder_image');
-    $location = $field_definition->getFieldStorageDefinition()->getSetting('uri_scheme') . '://' . $field_definition->getSetting('file_directory');
-    $location = \Drupal::token()->replace($location);
+    $field_definition = $media->getFieldDefinition($local_field);
+    $location = $field_definition->getFieldStorageDefinition()
+      ->getSetting('uri_scheme') . '://' . $field_definition->getSetting('file_directory');
+    $location = Drupal::token()->replace($location);
 
-    \Drupal::service('file_system')->prepareDirectory($location, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);
+    Drupal::service('file_system')
+      ->prepareDirectory($location, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);
     if ($file = system_retrieve_file($image_url, $location, TRUE)) {
-      $media->set('field_bynder_image', $file);
+      $media->set($local_field, $file);
     }
   }
 }
 
-
 /**
  * Implements hook_ENTITY_TYPE_presave() for media.
+ *
+ * @param mixed $has_changed
  */
+
 /**
  * Implements hook_bynder_media_update_alter().
  */
 function bynder_local_bynder_media_update_alter(MediaInterface $media, array $item, &$has_changed) {
   $source = $media->getSource();
 
-  if ($source instanceof Bynder && $media->hasField('field_bynder_image')) {
+  $config = Drupal::config('bynder_local.settings');
+  $local_field = $config->get('local_image_field');
 
+  if ($source instanceof Bynder && $media->hasField($local_field)) {
     $image_url = bynder_local_get_image_url($item);
     if (!$image_url) {
-      \Drupal::logger('bynder_local')->warning('Missing asset for media @label (@id)', ['@label' => $media->label(), '@id' => $media->id()]);
+      Drupal::logger('bynder_local')
+        ->warning('Missing asset for media @label (@id)', [
+          '@label' => $media->label(),
+          '@id' => $media->id(),
+        ]);
+
       return;
     }
 
     // Check the asset date, if it changed after the local file or if there is
     // no local file, fetch it again.
-    if ($media->get('field_bynder_image')->entity) {
+    if ($media->get($local_field)->entity) {
       try {
-        $modified = new \DateTime($item['dateModified']);
-        if ($modified->getTimestamp() < $media->get('field_bynder_image')->entity->getCreatedTime()) {
+        $modified = new DateTime($item['dateModified']);
+        if ($modified->getTimestamp() < $media->get($local_field)->entity->getCreatedTime()) {
           return;
         }
       }
-      catch (\Exception $e) {
+      catch (Exception $e) {
         watchdog_exception('bynder_local', $e);
       }
     }
 
-    $field_definition = $media->getFieldDefinition('field_bynder_image');
-    $location = $field_definition->getFieldStorageDefinition()->getSetting('uri_scheme') . '://' . $field_definition->getSetting('file_directory');
-    $location = \Drupal::token()->replace($location);
+    $field_definition = $media->getFieldDefinition($local_field);
+    $location = $field_definition->getFieldStorageDefinition()
+      ->getSetting('uri_scheme') . '://' . $field_definition->getSetting('file_directory');
+    $location = Drupal::token()->replace($location);
 
-    \Drupal::service('file_system')->prepareDirectory($location, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);
+    Drupal::service('file_system')
+      ->prepareDirectory($location, FileSystemInterface::CREATE_DIRECTORY | FileSystemInterface::MODIFY_PERMISSIONS);
     if ($file = system_retrieve_file($image_url, $location, TRUE)) {
-
       // If there already is a local file, mark it as temporary.
-      if ($media->get('field_bynder_image')->entity) {
-        $old_file = $media->get('field_bynder_image')->entity;
+      if ($media->get($local_field)->entity) {
+        $old_file = $media->get($local_field)->entity;
         $old_file->setTemporary();
         $old_file->save();
       }
 
-      $media->set('field_bynder_image', $file);
+      $media->set($local_field, $file);
       $has_changed = TRUE;
     }
   }
@@ -99,22 +123,26 @@ function bynder_local_bynder_media_update_alter(MediaInterface $media, array $it
  * @param array $item
  *   The raw asset information.
  *
- * @return string|null
- *   The image URL or NULL if it can't be fetched.
+ * @return null|string
+ *   The image URL or NULL if it can't be fetched
  */
 function bynder_local_get_image_url(array $item) {
-  $config = \Drupal::config('bynder_local.settings');
-  if ($config->get('derivative') == 'original') {
+  $config = Drupal::config('bynder_local.settings');
+  if ('original' == $config->get('derivative')) {
     return $item['original'] ?? NULL;
   }
-  elseif ($config->get('derivative') == '_download') {
+  if ('_download' == $config->get('derivative')) {
     /** @var \Drupal\bynder\BynderApi $api */
-    $api = \Drupal::service('bynder_api');
+    $api = Drupal::service('bynder_api');
+
     try {
-      $response = $api->getAssetBankManager()->getMediaDownloadLocation($item['id'])->wait();
+      $response = $api->getAssetBankManager()
+        ->getMediaDownloadLocation($item['id'])
+        ->wait();
+
       return $response['s3_file'];
     }
-    catch (\Exception $e) {
+    catch (Exception $e) {
       watchdog_exception('bynder_local', $e);
     }
   }
@@ -126,14 +154,17 @@ function bynder_local_get_image_url(array $item) {
 /**
  * Implements hook_form_FORM_ID_alter().
  */
-function bynder_local_form_bynder_configuration_form_alter(&$form, \Drupal\Core\Form\FormStateInterface $form_state) {
+function bynder_local_form_bynder_configuration_form_alter(&$form, FormStateInterface $form_state) {
+  $field_map = Drupal::service('entity_field.manager')->getFieldMap();
 
-  $field_map = \Drupal::service('entity_field.manager')->getFieldMap();
+  $config = Drupal::config('bynder_local.settings');
+  $local_field = $config->get('local_image_field');
 
   try {
-    $derivatives = array_merge(array_map(function ($item) {
+    $derivatives = array_merge(
+      array_map(function ($item) {
         return $item['prefix'];
-      }, \Drupal::service('bynder_api')->getDerivatives()),
+      }, Drupal::service('bynder_api')->getDerivatives()),
       ['mini', 'webimage', 'thul', 'original']
     );
     $derivatives = array_combine($derivatives, $derivatives);
@@ -149,20 +180,21 @@ function bynder_local_form_bynder_configuration_form_alter(&$form, \Drupal\Core\
     '#open' => TRUE,
   ];
 
-  if (empty($field_map['media']['field_bynder_image']['bundles'])) {
-    $form['bynder_local']['#description'] = t('The Field "field_bynder_image" has not been added to any media types, this functionality is not active.');
+  if (empty($field_map['media'][$local_field]['bundles'])) {
+    $form['bynder_local']['#description'] = t('The Field "@fieldname" has not been added to any media types, this functionality is not active.', ['@fieldname' => $local_field]);
   }
   else {
     $labels = [];
-    $bundles = \Drupal::service('entity_type.bundle.info')->getBundleInfo('media');
-    foreach ($field_map['media']['field_bynder_image']['bundles'] as $bundle) {
+    $bundles = Drupal::service('entity_type.bundle.info')
+      ->getBundleInfo('media');
+    foreach ($field_map['media'][$local_field]['bundles'] as $bundle) {
       $labels[] = $bundles[$bundle]['label'];
     }
 
     $form['bynder_local']['#description'] = t('The following media types are storing a local asset: @labels.', ['@labels' => implode(', ', $labels)]);
   }
 
-  $config = \Drupal::configFactory()->getEditable('bynder_local.settings');
+  $config = Drupal::configFactory()->getEditable('bynder_local.settings');
 
   $form['bynder_local']['local_derivative'] = [
     '#type' => 'select',
@@ -179,7 +211,7 @@ function bynder_local_form_bynder_configuration_form_alter(&$form, \Drupal\Core\
  * Form submit callback.
  */
 function bynder_local_settings_submit($form, FormStateInterface $form_state) {
-  $config = \Drupal::configFactory()->getEditable('bynder_local.settings');
+  $config = Drupal::configFactory()->getEditable('bynder_local.settings');
   $config->set('derivative', $form_state->getValue('local_derivative'));
   $config->save();
 }

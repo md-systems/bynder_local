@@ -1,0 +1,5 @@
+bynder_local.settings:
+  title: 'Local Bynder Assets Settings'
+  parent: bynder.configuration_form
+  description: 'Configure Local Bynder Assets module.'
+  route_name: bynder_local.settings

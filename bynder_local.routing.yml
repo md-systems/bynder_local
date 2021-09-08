@@ -1,0 +1,7 @@
+bynder_local.settings:
+  path: '/admin/config/content/admin/config/services/bynder/bynder_local'
+  defaults:
+    _form: '\Drupal\bynder_local\Form\BynderLocalSettingsForm'
+    _title: 'Bynder Local settings'
+  requirements:
+    _permission: 'administer bynder local'
